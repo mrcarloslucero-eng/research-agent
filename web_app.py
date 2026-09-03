@@ -52,4 +52,7 @@ def preview_route():
 
 if __name__ == '__main__':
     print("\n🌐 Research Agent UI → http://localhost:5000\n")
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    # debug=True gives auto-reload on code changes (and an interactive error
+    # page in the browser). Keep it off if you ever expose this port publicly,
+    # since the debugger can execute arbitrary code.
+    app.run(host='127.0.0.1', port=5000, debug=True)
