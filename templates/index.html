@@ -36,6 +36,8 @@
   .steps { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
   .steps summary { cursor: pointer; }
   .steps li { margin: 4px 0 0 16px; }
+  .steps .meta { color: var(--muted); font-size: 11.5px; }
+  .stats { margin-top: 8px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 6px; }
   .typing { align-self: flex-start; color: var(--muted); font-style: italic; }
   form {
     display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border);
@@ -118,15 +120,27 @@ form.addEventListener('submit', async (e) => {
         ? '<span class="badge local">⚡ local · ' + escapeHtml(r.model) + '</span>'
         : '<span class="badge cloud">☁️ cloud · ' + escapeHtml(r.model) + '</span>';
       let stepsHtml = '';
+      const tools = (data.steps || []).filter(s => !['answer'].includes(s.action)).map(s => s.action);
+      let statsHtml = '';
+      if (data.usage) {
+        const u = data.usage;
+        const toolPart = tools.length ? ' · tools: ' + tools.join(', ') : '';
+        statsHtml = '<div class="stats">⏱ ' + u.latency_s + 's · ' + u.tokens_in +
+                    '→' + u.tokens_out + ' tok' + toolPart +
+                    ' · ' + u.calls + ' model call(s)</div>';
+      }
       if (data.steps && data.steps.length) {
         const items = data.steps.map(s =>
           '<li>step ' + s.step + ': <b>' + escapeHtml(s.action) + '</b>' +
-          (s.detail ? ' — ' + escapeHtml(s.detail) : '') + '</li>').join('');
+          (s.detail ? ' — ' + escapeHtml(s.detail) : '') +
+          (s.meta ? ' <span class="meta">(' + s.meta.tokens_in + '→' + s.meta.tokens_out +
+           ' tok, ' + s.meta.latency_s + 's, ' + (s.meta.tokens_per_sec ?? '?') + ' tok/s)</span>' : '') +
+          '</li>').join('');
         stepsHtml = '<details class="steps"><summary>' + data.steps.length +
                     ' agent step(s) · routed by ' + escapeHtml(r.tier) +
                     ': ' + escapeHtml(r.reason) + '</summary><ul>' + items + '</ul></details>';
       }
-      addMsg('bot', badge + escapeHtml(data.answer) + stepsHtml);
+      addMsg('bot', badge + escapeHtml(data.answer) + statsHtml + stepsHtml);
     }
   } catch (err) {
     typing.remove();

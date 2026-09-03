@@ -37,6 +37,7 @@ def ask():
         'answer': result['answer'],
         'route': result['route'],
         'steps': result['steps'],
+        'usage': result['usage'],
     })
 
 

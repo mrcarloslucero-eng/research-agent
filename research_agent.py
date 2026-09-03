@@ -94,10 +94,17 @@ def safe_eval(expression: str) -> str:
 # ─────────────────────────────────────────────
 # OLLAMA CONNECTION
 # ─────────────────────────────────────────────
-def ask_model(messages: List[Dict[str, str]], backend: str = 'local') -> str:
-    """Send messages to the routed model backend and return the response."""
+def ask_model(messages: List[Dict[str, str]], backend: str = 'local', stats=None) -> str:
+    """Send messages to the routed model backend and return the response.
+
+    If `stats` is a list, the call's usage metadata (tokens, latency,
+    throughput) is appended to it.
+    """
     try:
-        return call_model(messages, backend)
+        content, meta = call_model(messages, backend)
+        if stats is not None:
+            stats.append(meta)
+        return content
     except Exception as e:
         print(f"   ❌ Model request failed: {e}")
         return '{"action": "answer", "response": "Error: Could not reach any model backend (local or cloud)."}'
@@ -342,6 +349,20 @@ def trim_messages(messages: List[Dict[str, str]], max_messages: int = MAX_CONTEX
 
 
 # ─────────────────────────────────────────────
+# USAGE SUMMARY
+# ─────────────────────────────────────────────
+def summarize_usage(stats: List[Dict]) -> Dict:
+    """Aggregate per-call usage metadata into totals for a full agent run."""
+    return {
+        'calls': len(stats),
+        'tokens_in': sum(s.get('tokens_in', 0) or 0 for s in stats),
+        'tokens_out': sum(s.get('tokens_out', 0) or 0 for s in stats),
+        'latency_s': round(sum(s.get('latency_s', 0) or 0 for s in stats), 2),
+        'model': stats[-1].get('model') if stats else None,
+    }
+
+
+# ─────────────────────────────────────────────
 # AGENT LOOP
 # ─────────────────────────────────────────────
 def run_agent(user_question: str, route_decision=None):
@@ -356,7 +377,8 @@ def run_agent(user_question: str, route_decision=None):
     print(f"🔀 Router: {backend.upper()} ({rd['model']}) — {rd['reason']} [tier: {rd['tier']}]")
     print(f"{'='*50}")
 
-    steps = []  # trace for the web UI
+    steps = []   # trace for the web UI
+    stats = []   # per-call usage: tokens, latency, throughput
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -369,7 +391,11 @@ def run_agent(user_question: str, route_decision=None):
         # Protect context window
         messages = trim_messages(messages)
 
-        raw_output = ask_model(messages, backend)
+        raw_output = ask_model(messages, backend, stats)
+        meta = stats[-1] if stats else {}
+        if meta:
+            print(f"   📊 {meta.get('tokens_in', 0)}→{meta.get('tokens_out', 0)} tok, "
+                  f"{meta.get('latency_s', 0)}s, {meta.get('tokens_per_sec', '?')} tok/s")
         print(f"   🧠 Model said: {raw_output}")
 
         # Extract JSON from model output
@@ -399,7 +425,8 @@ def run_agent(user_question: str, route_decision=None):
         action = decision.get('action')
         steps.append({'step': step + 1, 'action': action,
                       'detail': decision.get('query') or decision.get('city')
-                      or decision.get('expression') or ''})
+                      or decision.get('expression') or '',
+                      'meta': meta})
 
         if action == 'search_web':
             query = decision.get('query', '')
@@ -467,7 +494,7 @@ def run_agent(user_question: str, route_decision=None):
             print(f"✅ Final Answer:\n")
             print(response)
             print(f"{'='*50}\n")
-            return {'answer': response, 'route': rd, 'steps': steps}
+            return {'answer': response, 'route': rd, 'steps': steps, 'usage': summarize_usage(stats)}
 
         else:
             available = "get_weather, search_web, search_wikipedia, search_news, calculate, answer"
@@ -501,14 +528,14 @@ def run_agent(user_question: str, route_decision=None):
                 print(f"✅ Final Answer (from step limit):\n")
                 print(response)
                 print(f"{'='*50}\n")
-                return {'answer': response, 'route': rd, 'steps': steps}
+                return {'answer': response, 'route': rd, 'steps': steps, 'usage': summarize_usage(stats)}
         except Exception:
             pass
 
     print(f"\n{'='*50}")
     print("❌ Could not obtain a final answer within the step limit.")
     print(f"{'='*50}\n")
-    return {'answer': 'Sorry — I could not produce a final answer within the step limit.', 'route': rd, 'steps': steps}
+    return {'answer': 'Sorry — I could not produce a final answer within the step limit.', 'route': rd, 'steps': steps, 'usage': summarize_usage(stats)}
 
 
 if __name__ == "__main__":

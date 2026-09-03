@@ -14,6 +14,7 @@ Two-tier design:
 """
 import os
 import re
+import time
 import requests
 
 # ─────────────────────────────────────────────
@@ -110,17 +111,17 @@ def classify_with_local_model(question: str):
     or gives an unparseable answer.
     """
     try:
-        data = ollama_chat([{
+        content, _meta = ollama_chat([{
             'role': 'user',
             'content': CLASSIFIER_PROMPT + question,
         }])
     except Exception:
         return None
 
-    if not data:
+    if not content:
         return None
 
-    match = re.search(r'"route"\s*:\s*"(local|cloud)"', data)
+    match = re.search(r'"route"\s*:\s*"(local|cloud)"', content)
     return match.group(1) if match else None
 
 
@@ -150,23 +151,41 @@ def route(question: str) -> RouteDecision:
 # ─────────────────────────────────────────────
 # MODEL CALL WRAPPERS
 # ─────────────────────────────────────────────
-def ollama_chat(messages) -> str:
-    """Call the local Ollama model. Raises on any failure."""
+def ollama_chat(messages):
+    """Call the local Ollama model. Returns (content, meta). Raises on failure.
+
+    meta carries token usage, latency, and generation throughput, which
+    Ollama reports directly in its chat response.
+    """
+    start = time.perf_counter()
     response = requests.post(
         f'{OLLAMA_URL}/api/chat',
         json={'model': LOCAL_MODEL, 'messages': messages, 'stream': False},
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
-    return response.json()['message']['content'].strip()
+    data = response.json()
+    latency = time.perf_counter() - start
+
+    tokens_out = data.get('eval_count', 0)
+    eval_seconds = data.get('eval_duration', 0) / 1e9  # Ollama reports nanoseconds
+    meta = {
+        'model': data.get('model', LOCAL_MODEL),
+        'tokens_in': data.get('prompt_eval_count', 0),
+        'tokens_out': tokens_out,
+        'latency_s': round(latency, 2),
+        'tokens_per_sec': round(tokens_out / eval_seconds, 1) if eval_seconds else None,
+    }
+    return data['message']['content'].strip(), meta
 
 
-def openrouter_chat(messages) -> str:
-    """Call the cloud model via OpenRouter. Raises on any failure."""
+def openrouter_chat(messages):
+    """Call the cloud model via OpenRouter. Returns (content, meta). Raises on failure."""
     api_key = os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
         raise RuntimeError('OPENROUTER_API_KEY not set')
 
+    start = time.perf_counter()
     response = requests.post(
         OPENROUTER_URL,
         headers={
@@ -180,11 +199,28 @@ def openrouter_chat(messages) -> str:
         timeout=60,
     )
     response.raise_for_status()
-    return response.json()['choices'][0]['message']['content'].strip()
+    data = response.json()
+    latency = time.perf_counter() - start
+
+    usage = data.get('usage', {})
+    tokens_out = usage.get('completion_tokens', 0)
+    meta = {
+        'model': data.get('model', CLOUD_MODEL),
+        'tokens_in': usage.get('prompt_tokens', 0),
+        'tokens_out': tokens_out,
+        'latency_s': round(latency, 2),
+        # Throughput is approximate: it includes network overhead, unlike Ollama's
+        # eval_duration, which measures generation time only.
+        'tokens_per_sec': round(tokens_out / latency, 1) if tokens_out and latency else None,
+    }
+    return data['choices'][0]['message']['content'].strip(), meta
 
 
-def call_model(messages, backend: str) -> str:
-    """Dispatch to the right backend; fall back to cloud if local fails."""
+def call_model(messages, backend: str):
+    """Dispatch to the right backend; fall back to cloud if local fails.
+
+    Returns (content, meta).
+    """
     if backend == 'local':
         try:
             return ollama_chat(messages)
