@@ -334,8 +334,35 @@ When you have enough information, respond ONLY with:
 # ─────────────────────────────────────────────
 # CONTEXT WINDOW MANAGEMENT
 # ─────────────────────────────────────────────
+# Older tool results are truncated to this many characters. The most recent
+# messages stay verbatim; the model keeps the gist of old results without
+# re-paying for their full text on every step.
+TOOL_RESULT_KEEP_CHARS = 200
+VERBATIM_RECENT = 4  # most recent messages (excluding system) kept in full
+
+
+def _compress_old_messages(messages: List[Dict[str, str]], keep_recent: int) -> List[Dict[str, str]]:
+    """Truncate old tool-result messages, keeping the most recent ones verbatim.
+
+    Tool results are the user-role messages that start with 'Tool result' —
+    they are the bulk of context growth in the loop.
+    """
+    body = messages[1:] if messages and messages[0].get('role') == 'system' else messages
+    split = len(body) - keep_recent  # everything before this index gets compressed
+    out = []
+    for i, m in enumerate(body):
+        content = m.get('content', '')
+        if i < split and content.startswith('Tool result') and len(content) > TOOL_RESULT_KEEP_CHARS:
+            m = dict(m, content=content[:TOOL_RESULT_KEEP_CHARS]
+                     + f"\n[...older tool result trimmed, {len(content)} chars total — use a tool again if you need fresh data]")
+        out.append(m)
+    return ([messages[0]] + out) if messages and messages[0].get('role') == 'system' else out
+
+
 def trim_messages(messages: List[Dict[str, str]], max_messages: int = MAX_CONTEXT_MESSAGES) -> List[Dict[str, str]]:
     """Trim message history to protect context window, keeping system and latest messages."""
+    messages = _compress_old_messages(messages, VERBATIM_RECENT)
+
     if len(messages) <= max_messages:
         return messages
 

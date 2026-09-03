@@ -22,7 +22,7 @@ import requests
 # ─────────────────────────────────────────────
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 LOCAL_MODEL = os.environ.get('LOCAL_MODEL', 'llama3.1:8b')
-CLOUD_MODEL = os.environ.get('CLOUD_MODEL', 'anthropic/claude-3.5-sonnet')
+CLOUD_MODEL = os.environ.get('CLOUD_MODEL', 'z-ai/glm-5.3-flash')
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 REQUEST_TIMEOUT = 30
 

@@ -54,7 +54,7 @@ python research_agent.py
 | Variable | Default | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | — | cloud model access (required for cloud routing) |
-| `CLOUD_MODEL` | `anthropic/claude-3.5-sonnet` | any OpenRouter model id |
+| `CLOUD_MODEL` | `z-ai/glm-5.3-flash` | any OpenRouter model id |
 | `LOCAL_MODEL` | `llama3.1:8b` | any locally pulled Ollama model |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `OPENWEATHER_API_KEY` | — | weather tool |
